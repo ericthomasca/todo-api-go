@@ -7,9 +7,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/joho/godotenv"
+	// "net/http"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+	// "github.com/go-chi/chi/v5"
+	// "github.com/go-chi/chi/v5/middleware"
 )
 
 type TodoStatus string
@@ -29,61 +33,89 @@ type Todo struct {
 func connectToDatabase() (*pgxpool.Pool, error) {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		return nil, fmt.Errorf("error loading .env file: %w", err)
 	}
 	
-	pgURI := os.Getenv("PG_URI")
+	pgURI := os.Getenv("PG_URI");
 	if pgURI == "" {
-		return nil, fmt.Errorf("PG_URI environment variable is not set")
+		return nil, fmt.Errorf("PG_URI environment variable is not set: %w", err)
 	}
 
 	pgxConfig, err := pgxpool.ParseConfig(pgURI)
 	if err != nil {
-		return nil, fmt.Errorf("problem parsing PG_URI: %v", err)
+		return nil, fmt.Errorf("problem parsing PG_URI: %w", err)
 	}
 	
 	pgConnPool, err := pgxpool.NewWithConfig(context.Background(), pgxConfig)
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to database: %v", err)
+		return nil, fmt.Errorf("unable to connect to database: %w", err)
 	}
 
 	return pgConnPool, nil
 }
 
-func main() {
+func getTodosFromRows() ([]Todo, error) {
 	// Connect to database
 	pgConnPool, err := connectToDatabase()
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v", err)
+		return nil, fmt.Errorf("unable to connect to database: %w", err)
 	}
 	defer pgConnPool.Close()
 
 	// GET all todos from database
-	todos, err := pgConnPool.Query(context.Background(), "SELECT id, todo, status, date_created FROM todo")
+	rows, err := pgConnPool.Query(context.Background(), "SELECT id, todo, status, date_created FROM todo")
 	if err != nil {
-		log.Fatalf("Unable to execute query: %v\n", err)
+		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
-	defer todos.Close()
+	defer rows.Close()
+	
+	var todos []Todo
 
-	// Print each todo
-	fmt.Println("Todos:")
-	for todos.Next() {
+	for rows.Next() {
 		var todo Todo
-		err := todos.Scan(&todo.Id, &todo.Todo, &todo.Status, &todo.DateCreated)
+		
+		err := rows.Scan(&todo.Id, &todo.Todo, &todo.Status, &todo.DateCreated)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Unable to scan todo: %v\n", err)
-			continue
+			return nil, fmt.Errorf("error occurred during row iteration: %w", err)	
 		}
+		
+		// TODO use this code later
+		// todoIdValue, err := todo.Id.Value()
+		// if err != nil {
+		// 	fmt.Fprintf(os.Stderr, "Problem with UUID")
+		// }
 
-		todoIdValue, err := todo.Id.Value()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Problem with UUID")
-		}
-
-		fmt.Printf("ID: %s\tTodo: %s\tStatus: %s\tDate Created: %s\n", todoIdValue, todo.Todo, todo.Status, todo.DateCreated.String())
-
-		// TODO CRUD API calls
+		todos = append(todos, todo)
 	}
- 
-	os.Exit(0)
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("error occurred during row iteration: %w", err)
+	}
+
+	if len(todos) == 0 {
+		return nil, fmt.Errorf("no todos found: %w", err)
+	}
+
+	return todos, nil
+}
+
+func main() {
+	// router := chi.NewRouter()
+	// router.Use(middleware.Logger)
+	
+	// router.Get("/", func (w http.ResponseWriter, r *http.Request) {
+	// 	w.Write([]byte("welcome"))
+	// })
+
+	// http.ListenAndServe(":3420", router)
+
+	todos, err := getTodosFromRows()
+	if err != nil {
+		log.Printf("Error retrieving todos: %v", err)
+	}
+
+	fmt.Println(todos[0].Todo)
+	fmt.Println(todos[1].Todo)
+	fmt.Println(todos[2].Todo)
 }
