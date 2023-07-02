@@ -2,18 +2,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
-	// "net/http"
-
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-	// "github.com/go-chi/chi/v5"
-	// "github.com/go-chi/chi/v5/middleware"
 )
 
 type TodoStatus string
@@ -35,8 +36,8 @@ func connectToDatabase() (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error loading .env file: %w", err)
 	}
-	
-	pgURI := os.Getenv("PG_URI");
+
+	pgURI := os.Getenv("PG_URI")
 	if pgURI == "" {
 		return nil, fmt.Errorf("PG_URI environment variable is not set: %w", err)
 	}
@@ -45,7 +46,7 @@ func connectToDatabase() (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("problem parsing PG_URI: %w", err)
 	}
-	
+
 	pgConnPool, err := pgxpool.NewWithConfig(context.Background(), pgxConfig)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %w", err)
@@ -54,68 +55,106 @@ func connectToDatabase() (*pgxpool.Pool, error) {
 	return pgConnPool, nil
 }
 
-func getTodosFromRows() ([]Todo, error) {
-	// Connect to database
-	pgConnPool, err := connectToDatabase()
+func getTodos(w http.ResponseWriter, r *http.Request) {
+	conn, err := connectToDatabase()
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to database: %w", err)
+		log.Println(err)
+		http.Error(w, "Internal server error: cannot connect to database", http.StatusInternalServerError)
+		return
 	}
-	defer pgConnPool.Close()
+	defer conn.Close()
 
-	// GET all todos from database
-	rows, err := pgConnPool.Query(context.Background(), "SELECT id, todo, status, date_created FROM todo")
+	rows, err := conn.Query(context.Background(), "SELECT id, todo, status, date_created FROM todo")
 	if err != nil {
-		return nil, fmt.Errorf("unable to execute query: %w", err)
+		http.Error(w, "Internal server error: unable to execute query", http.StatusInternalServerError)
+		return
 	}
 	defer rows.Close()
-	
-	var todos []Todo
 
+	var todos []Todo
 	for rows.Next() {
 		var todo Todo
-		
+
 		err := rows.Scan(&todo.Id, &todo.Todo, &todo.Status, &todo.DateCreated)
 		if err != nil {
-			return nil, fmt.Errorf("error occurred during row iteration: %w", err)	
+			http.Error(w, "Internal server error: error occurred during row iteration", http.StatusInternalServerError)
+			return
 		}
-		
-		// TODO use this code later
-		// todoIdValue, err := todo.Id.Value()
-		// if err != nil {
-		// 	fmt.Fprintf(os.Stderr, "Problem with UUID")
-		// }
-
 		todos = append(todos, todo)
 	}
 
-	err = rows.Err()
+	json.NewEncoder(w).Encode(todos)
+}
+
+func getTodo(w http.ResponseWriter, r *http.Request) {
+	conn, err := connectToDatabase()
 	if err != nil {
-		return nil, fmt.Errorf("error occurred during row iteration: %w", err)
+		log.Println(err)
+		http.Error(w, "Internal server error: cannot connect to database", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	idStr := chi.URLParam(r, "id")
+	id := pgtype.UUID{}
+	err = id.Scan(idStr)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Invalid ID", http.StatusInternalServerError)
+		return
 	}
 
-	if len(todos) == 0 {
-		return nil, fmt.Errorf("no todos found: %w", err)
+	todo := Todo{}
+	err = conn.QueryRow(context.Background(), "SELECT * FROM todo WHERE id = $1", id).Scan(&todo.Id, &todo.Todo, &todo.Status, &todo.DateCreated)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.NotFound(w, r)
+		} else {
+			log.Println(err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
 	}
 
-	return todos, nil
+	json.NewEncoder(w).Encode(todo)
+}
+
+func createTodo(w http.ResponseWriter, r *http.Request) {
+	conn, err := connectToDatabase()
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Internal server error: cannot connect to database", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	todo := Todo{}
+	err = json.NewDecoder(r.Body).Decode(&todo)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	err = conn.QueryRow(context.Background(), "INSERT INTO todo (todo) VALUES ($1) RETURNING id", todo.Todo).Scan(&todo.Id)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(todo)
 }
 
 func main() {
-	// router := chi.NewRouter()
-	// router.Use(middleware.Logger)
-	
-	// router.Get("/", func (w http.ResponseWriter, r *http.Request) {
-	// 	w.Write([]byte("welcome"))
-	// })
+	r := chi.NewRouter()
 
-	// http.ListenAndServe(":3420", router)
+	r.Use(middleware.Logger)
 
-	todos, err := getTodosFromRows()
-	if err != nil {
-		log.Printf("Error retrieving todos: %v", err)
-	}
+	r.Get("/todos", getTodos)
+	r.Get("/todos/{id}", getTodo)
+	r.Post("/todos", createTodo)
 
-	fmt.Println(todos[0].Todo)
-	fmt.Println(todos[1].Todo)
-	fmt.Println(todos[2].Todo)
+	fmt.Println("Serving on http://localhost:3420...")
+	http.ListenAndServe(":3420", r)
 }
