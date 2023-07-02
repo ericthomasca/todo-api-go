@@ -99,9 +99,9 @@ func getTodo(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	idStr := chi.URLParam(r, "id")
+	idInput := chi.URLParam(r, "id")
 	id := pgtype.UUID{}
-	err = id.Scan(idStr)
+	err = id.Scan(idInput)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, "Invalid ID", http.StatusInternalServerError)
