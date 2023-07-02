@@ -168,5 +168,8 @@ func main() {
 	r.Post("/todos", createTodo)
 
 	fmt.Println("Serving on http://localhost:3420...")
-	http.ListenAndServe(":3420", r)
+	err := http.ListenAndServe(":3420", r)
+	if err != nil {
+        log.Fatal("Error starting the server:", err)
+    }
 }
