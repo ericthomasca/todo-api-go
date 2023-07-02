@@ -83,7 +83,11 @@ func getTodos(w http.ResponseWriter, r *http.Request) {
 		todos = append(todos, todo)
 	}
 
-	json.NewEncoder(w).Encode(todos)
+	err = json.NewEncoder(w).Encode(todos)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func getTodo(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +120,11 @@ func getTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(todo)
+	err = json.NewEncoder(w).Encode(todo)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func createTodo(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +151,11 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(todo)
+	err = json.NewEncoder(w).Encode(todo)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func main() {
