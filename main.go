@@ -144,7 +144,7 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = conn.QueryRow(context.Background(), "INSERT INTO todo (todo) VALUES ($1) RETURNING id", todo.Todo).Scan(&todo.Id)
+	err = conn.QueryRow(context.Background(), "INSERT INTO todo (todo) VALUES ($1) RETURNING id, status, date_created", todo.Todo).Scan(&todo.Id, &todo.Status, &todo.DateCreated)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -170,6 +170,6 @@ func main() {
 	fmt.Println("Serving on http://localhost:3420...")
 	err := http.ListenAndServe(":3420", r)
 	if err != nil {
-        log.Fatal("Error starting the server:", err)
-    }
+		log.Fatal("Error starting the server:", err)
+	}
 }
