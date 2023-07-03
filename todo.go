@@ -173,7 +173,7 @@ func updateTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(todo)
+	err = json.NewEncoder(w).Encode(todo)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
