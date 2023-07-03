@@ -158,14 +158,63 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func updateTodo(w http.ResponseWriter, r *http.Request) {
+	conn, err := connectToDatabase()
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Internal server error: cannot connect to database", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	idInput := chi.URLParam(r, "id")
+	id := pgtype.UUID{}
+	err = id.Scan(idInput)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Invalid ID", http.StatusInternalServerError)
+		return
+	}
+
+	todo := Todo{}
+	err = json.NewDecoder(r.Body).Decode(&todo)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	_, err = conn.Exec(context.Background(), "UPDATE todo SET todo = $1, status = $2 WHERE id = $3", todo.Todo, todo.Status, id)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	err = conn.QueryRow(context.Background(), "SELECT * FROM todo WHERE id = $1", id).Scan(&todo.Id, &todo.Todo, &todo.Status, &todo.DateCreated)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.NotFound(w, r)
+		} else {
+			log.Println(err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	json.NewEncoder(w).Encode(todo)
+
+}
+
 func main() {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
 
 	r.Get("/todos", getTodos)
-	r.Get("/todos/{id}", getTodo)
+	r.Get("/todos/{id},", getTodo)
 	r.Post("/todos", createTodo)
+	r.Put("/todos/{id}", updateTodo)
 
 	fmt.Println("Serving on http://localhost:3420...")
 	err := http.ListenAndServe(":3420", r)
